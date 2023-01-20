@@ -16,7 +16,25 @@ type QueryRequest = {
   autoScroll?: boolean;
 }
 
-async function evaluateExpressions(queryRequest: QueryRequest) {
+function evaluateExpressions() {
+  return (elements: any, select: any) => {
+    const toPlainJson = (obj: any) => JSON.parse(JSON.stringify(obj));
+    return elements.map((element: any) => {
+      return select.reduce((values: any, attribute: any) => {
+        if (element[attribute]) {
+          if (typeof element[attribute] === 'function') {
+            values[attribute] = toPlainJson(element[attribute]());
+          } else {
+            values[attribute] = toPlainJson(element[attribute]);
+          }
+        }
+        return values;
+      }, {});
+    });
+  };
+}
+
+async function handleQueryRequest(queryRequest: QueryRequest) {
   const browser = await puppeteer.launch();
 
   const page = await browser.newPage();
@@ -37,21 +55,7 @@ async function evaluateExpressions(queryRequest: QueryRequest) {
 
   const results = await Promise.all(queryRequest.expressions.map(async expression => {
     console.log('Evaluating expression: ', expression);
-    const result = await page.$$eval(expression.from, (elements, select) => {
-      const toPlainJson = (obj: any) => JSON.parse(JSON.stringify(obj));
-      return elements.map((element: any) => {
-        return select.reduce((values, attribute) => {
-          if (element[attribute]) {
-            if (typeof element[attribute] === 'function') {
-              values[attribute] = toPlainJson(element[attribute]());
-            } else {
-              values[attribute] = toPlainJson(element[attribute]);
-            }
-          }
-          return values;
-        }, {} as any);
-      });
-    }, expression.select);
+    const result = await page.$$eval(expression.from, evaluateExpressions(), expression.select);
     return { [expression.as]: result };
   }));
 
@@ -68,7 +72,7 @@ router.get('/', (req: Request, res: Response) => {
 
 router.post('/query', async (req: Request, res: Response) => {
   console.log('Received request');
-  res.status(200).json(await evaluateExpressions(req.body as QueryRequest))
+  res.status(200).json(await handleQueryRequest(req.body as QueryRequest))
   console.log('Sent response');
 })
 
